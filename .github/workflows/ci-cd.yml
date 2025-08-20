@@ -8,7 +8,6 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: devops-project-app
-  EKS_CLUSTER: my-eks-cluster # not using for future
 
 permissions:
   id-token: write
@@ -42,13 +41,33 @@ jobs:
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
 
+      - name: Find Launch Template ID
+        id: get-launch-template-id
+        run: |
+          LAUNCH_TEMPLATE_ID=$(aws ec2 describe-launch-templates --filters "Name=tag:Name,Values=devops-project-app-template" --query "LaunchTemplates[0].LaunchTemplateId" --output text)
+          echo "LAUNCH_TEMPLATE_ID=$LAUNCH_TEMPLATE_ID" >> $GITHUB_ENV
+          if [ "$LAUNCH_TEMPLATE_ID" = "None" ]; then
+            echo "Launch template not found. Exiting."
+            exit 1
+          fi
+
       - name: Update Launch Template with new image
         run: |
           aws ec2 create-launch-template-version \
-          --launch-template-id $(aws ec2 describe-launch-templates --filters "Name=tag:Name,Values=devops-project-app-template" --query "LaunchTemplates[0].LaunchTemplateId" --output text) \
+          --launch-template-id ${{ env.LAUNCH_TEMPLATE_ID }} \
           --source-version '$Latest' \
           --launch-template-data '{"ImageId":"ami-00ca32bbc84273381"}'
-          
+
+      - name: Find Auto Scaling Group Name
+        id: get-asg-name
+        run: |
+          ASG_NAME=$(aws autoscaling describe-auto-scaling-groups --filters "Name=tag:Name,Values=devops-project-asg" --query "AutoScalingGroups[0].AutoScalingGroupName" --output text)
+          echo "ASG_NAME=$ASG_NAME" >> $GITHUB_ENV
+          if [ "$ASG_NAME" = "None" ]; then
+            echo "Auto Scaling Group not found. Exiting."
+            exit 1
+          fi
+
       - name: Force new deployment on Auto Scaling Group
         run: |
-          aws autoscaling start-instance-refresh --auto-scaling-group-name $(aws autoscaling describe-auto-scaling-groups --filters "Name=tag:Name,Values=devops-project-asg" --query "AutoScalingGroups[0].AutoScalingGroupName" --output text)
+          aws autoscaling start-instance-refresh --auto-scaling-group-name ${{ env.ASG_NAME }}

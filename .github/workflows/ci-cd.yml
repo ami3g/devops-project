@@ -8,7 +8,7 @@ on:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: devops-project-app
-  EKS_CLUSTER: my-eks-cluster # not using but for future
+  EKS_CLUSTER: my-eks-cluster # not using for future
 
 permissions:
   id-token: write

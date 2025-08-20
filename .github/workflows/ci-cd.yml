@@ -1,0 +1,54 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: devops-project-app
+  EKS_CLUSTER: my-eks-cluster # not using but for future
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to AWS
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
+
+      - name: Build, tag, and push image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+      - name: Update Launch Template with new image
+        run: |
+          aws ec2 create-launch-template-version \
+          --launch-template-id $(aws ec2 describe-launch-templates --filters "Name=tag:Name,Values=devops-project-app-template" --query "LaunchTemplates[0].LaunchTemplateId" --output text) \
+          --source-version '$Latest' \
+          --launch-template-data '{"ImageId":"ami-00ca32bbc84273381"}'
+          
+      - name: Force new deployment on Auto Scaling Group
+        run: |
+          aws autoscaling start-instance-refresh --auto-scaling-group-name $(aws autoscaling describe-auto-scaling-groups --filters "Name=tag:Name,Values=devops-project-asg" --query "AutoScalingGroups[0].AutoScalingGroupName" --output text)

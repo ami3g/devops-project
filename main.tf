@@ -210,19 +210,27 @@ resource "aws_launch_template" "app_template" {
     security_groups             = [aws_security_group.app_sg.id]
   }
 
- # User data to install and run the Dockerized app
+# User data to install and run the Dockerized app
   user_data = base64encode(<<-EOF
               #!/bin/bash
               yum update -y
               yum install docker -y
               service docker start
               usermod -a -G docker ec2-user
-              # Wait for Docker to be ready
+              
+              # Install AWS CLI
+              yum install -y aws-cli
+              
+              # Wait for Docker daemon to be ready
               until docker info; do
                 echo "Waiting for Docker daemon to be ready..."
                 sleep 1
               done
+              
+              # Log in to ECR
               aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${aws_ecr_repository.app.repository_url}
+              
+              # Pull and run the latest Docker image
               docker pull ${aws_ecr_repository.app.repository_url}:latest
               docker run -d -p 5000:5000 ${aws_ecr_repository.app.repository_url}:latest
               EOF

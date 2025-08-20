@@ -78,4 +78,27 @@ jobs:
 
       - name: Force new deployment on Auto Scaling Group
         run: |
+          # Wait for any previous instance refresh to complete
+          MAX_WAIT_TIME=300 # seconds
+          ELAPSED_TIME=0
+          while [ $ELAPSED_TIME -lt $MAX_WAIT_TIME ]; do
+            REFRESH_STATUS=$(aws autoscaling describe-instance-refreshes \
+              --auto-scaling-group-name ${{ env.ASG_NAME }} \
+              --query "InstanceRefreshes[0].Status" --output text)
+            
+            if [[ "$REFRESH_STATUS" == "None" || "$REFRESH_STATUS" == "Successful" || "$REFRESH_STATUS" == "Cancelled" || "$REFRESH_STATUS" == "Failed" ]]; then
+              echo "Previous instance refresh is complete. Proceeding with new refresh."
+              break
+            fi
+            
+            echo "Instance refresh is in progress. Waiting..."
+            sleep 10
+            ELAPSED_TIME=$((ELAPSED_TIME + 10))
+          done
+          
+          if [ $ELAPSED_TIME -ge $MAX_WAIT_TIME ]; then
+            echo "Timed out waiting for previous instance refresh to complete. Exiting."
+            exit 1
+          fi
+          
           aws autoscaling start-instance-refresh --auto-scaling-group-name ${{ env.ASG_NAME }}

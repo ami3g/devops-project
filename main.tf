@@ -6,6 +6,15 @@ terraform {
       version = "~> 5.0"
     }
   }
+
+  # This is the new backend block.
+  # It tells Terraform to store state in S3 with DynamoDB for locking.
+  backend "s3" {
+    bucket         = "devops-project-terraform-state-amite" # Change this to a globally unique name
+    key            = "main/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "devops-project-terraform-lock"
+  }
 }
 
 # The provider block configures the AWS provider with the specific region
@@ -210,7 +219,7 @@ resource "aws_launch_template" "app_template" {
     security_groups             = [aws_security_group.app_sg.id]
   }
 
-# User data to install and run the Dockerized app
+  # User data to install and run the Dockerized app
   user_data = base64encode(<<-EOF
               #!/bin/bash
               yum update -y
@@ -259,4 +268,93 @@ resource "aws_autoscaling_group" "app_asg" {
     value               = "devops-project-asg"
     propagate_at_launch = true
   }
+}
+
+## TERRAFORM STATE MANAGEMENT ##
+# Create the S3 bucket for Terraform state
+resource "aws_s3_bucket" "terraform_state" {
+  bucket = "devops-project-terraform-state-amite" # Change this to a unique bucket name
+
+  tags = {
+    Name = "devops-project-terraform-state"
+  }
+}
+
+# Add S3 bucket versioning to keep a history of your state files
+resource "aws_s3_bucket_versioning" "terraform_state_versioning" {
+  bucket = aws_s3_bucket.terraform_state.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# Create the DynamoDB table for state locking
+resource "aws_dynamodb_table" "terraform_locks" {
+  name         = "devops-project-terraform-lock"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "LockID"
+
+  attribute {
+    name = "LockID"
+    type = "S"
+  }
+
+  tags = {
+    Name = "devops-project-terraform-lock-table"
+  }
+}
+
+## MONITORING AND ALERTING ##
+# Create an SNS topic for notifications
+resource "aws_sns_topic" "devops_alerts" {
+  name = "devops-project-alerts"
+}
+
+# Subscribe your email to the SNS topic
+resource "aws_sns_topic_subscription" "email_subscription" {
+  topic_arn = aws_sns_topic.devops_alerts.arn
+  protocol  = "email"
+  endpoint  = "amitesh3000@yahoo.com"
+}
+
+# Create a CloudWatch Alarm for ALB 5xx errors
+resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
+  alarm_name          = "devops-project-alb-5xx-errors"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "HTTPCode_ELB_5XX_Count"
+  namespace           = "AWS/ApplicationELB"
+  period              = 60
+  statistic           = "Sum"
+  threshold           = 5
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.main.arn_suffix
+  }
+
+  alarm_description = "Alarm when ALB returns 5xx errors"
+  alarm_actions     = [aws_sns_topic.devops_alerts.arn]
+  ok_actions        = [aws_sns_topic.devops_alerts.arn]
+}
+
+# Create a CloudWatch Alarm for ASG CPU utilization
+resource "aws_cloudwatch_metric_alarm" "asg_cpu_high" {
+  alarm_name          = "devops-project-asg-cpu-high"
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  evaluation_periods  = 1
+  metric_name         = "CPUUtilization"
+  namespace           = "AWS/EC2"
+  period              = 60
+  statistic           = "Average"
+  threshold           = 80
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    AutoScalingGroupName = aws_autoscaling_group.app_asg.name
+  }
+
+  alarm_description = "Alarm when average ASG CPU utilization is too high"
+  alarm_actions     = [aws_sns_topic.devops_alerts.arn]
+  ok_actions        = [aws_sns_topic.devops_alerts.arn]
 }

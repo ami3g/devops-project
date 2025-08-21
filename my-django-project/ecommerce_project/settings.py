@@ -78,7 +78,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'devops_project_db',
         'USER': 'projectadmin',
-        'PASSWORD': '&LcaNs8_<fAMnwg', # Replace with your actual password
+        'PASSWORD': 'Subra#1512', # Replace with your actual password
         'HOST': 'terraform-20250821175313543800000006.codyug048f9b.us-east-1.rds.amazonaws.com',
         'PORT': '5432', # Use the correct, standard PostgreSQL port
     }

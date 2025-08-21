@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-^31@gx%v_31s^bh%$#fe&65&xsyul2ybuiieby=@3&u82n%-$!
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -78,8 +78,8 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'devops_project_db',
         'USER': 'projectadmin',
-        'PASSWORD': '<your_password>', # Replace with your actual password
-        'HOST': 'terraform-20250821021025133200000001.codyug048f9b.us-east-1.rds.amazonaws.com',
+        'PASSWORD': '&LcaNs8_<fAMnwg', # Replace with your actual password
+        'HOST': 'terraform-20250821175313543800000006.codyug048f9b.us-east-1.rds.amazonaws.com',
         'PORT': '5432', # Use the correct, standard PostgreSQL port
     }
 }

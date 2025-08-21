@@ -1,35 +1,28 @@
 # Main Terraform configuration file
 terraform {
   required_providers {
-    # The AWS provider is what allows Terraform to interact with AWS services.
     aws = {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
   }
 
-  # This is the new backend block.
-  # It tells Terraform to store state in S3 with DynamoDB for locking.
   backend "s3" {
-    bucket         = "devops-project-terraform-state-amite" # Change this to a globally unique name
+    bucket         = "devops-project-terraform-state-amite"
     key            = "main/terraform.tfstate"
     region         = "us-east-1"
     dynamodb_table = "devops-project-terraform-lock"
   }
 }
 
-# The provider block configures the AWS provider with the specific region
-# where all your resources will be created.
 provider "aws" {
-  region = "us-east-1" # You can choose a different region if you prefer
+  region = "us-east-1"
 }
 
 data "aws_availability_zones" "available" {
   state = "available"
 }
 
-# This resource creates a Virtual Private Cloud (VPC), which is a logically isolated
-# virtual network for your AWS resources.
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
   tags = {
@@ -37,10 +30,8 @@ resource "aws_vpc" "main" {
   }
 }
 
-# This resource creates two public subnets within the VPC. Public subnets can
-# communicate with the internet.
 resource "aws_subnet" "public" {
-  count = 2 # Create two subnets for high availability
+  count = 2
 
   vpc_id                  = aws_vpc.main.id
   cidr_block              = "10.0.${count.index}.0/24"
@@ -52,7 +43,6 @@ resource "aws_subnet" "public" {
   }
 }
 
-# This resource creates two private subnets within the VPC.
 resource "aws_subnet" "private" {
   count = 2
 
@@ -65,8 +55,6 @@ resource "aws_subnet" "private" {
   }
 }
 
-# This resource creates an Internet Gateway (IGW) to enable communication between
-# the VPC and the internet.
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
 
@@ -75,8 +63,6 @@ resource "aws_internet_gateway" "main" {
   }
 }
 
-# This resource creates a route table. A route table contains a set of rules
-# that determine where network traffic is directed.
 resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
 
@@ -90,15 +76,12 @@ resource "aws_route_table" "public" {
   }
 }
 
-# This resource associates the public subnets with the public route table,
-# making them accessible from the internet.
 resource "aws_route_table_association" "public" {
   count          = 2
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
 
-# Resource to create an ECR repository to store your Docker image
 resource "aws_ecr_repository" "app" {
   name                 = "devops-project-app"
   image_tag_mutability = "MUTABLE"
@@ -107,7 +90,6 @@ resource "aws_ecr_repository" "app" {
   }
 }
 
-# IAM Role for EC2 instances
 resource "aws_iam_role" "ec2_instance_role" {
   name = "devops-project-ec2-role"
 
@@ -125,19 +107,16 @@ resource "aws_iam_role" "ec2_instance_role" {
   })
 }
 
-# Attach a policy to the IAM role that allows EC2 to pull images from ECR
 resource "aws_iam_role_policy_attachment" "ecr_policy_attachment" {
   role       = aws_iam_role.ec2_instance_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
-# IAM instance profile is a container for an IAM role that you can use to pass role information to an EC2 instance.
 resource "aws_iam_instance_profile" "instance_profile" {
   name = "devops-project-instance-profile"
   role = aws_iam_role.ec2_instance_role.name
 }
 
-# Application Load Balancer
 resource "aws_lb" "main" {
   name               = "devops-project-lb"
   internal           = false
@@ -150,7 +129,6 @@ resource "aws_lb" "main" {
   }
 }
 
-# Target Group for the Load Balancer
 resource "aws_lb_target_group" "app_target_group" {
   name     = "devops-project-tg"
   port     = 5000
@@ -158,7 +136,6 @@ resource "aws_lb_target_group" "app_target_group" {
   vpc_id   = aws_vpc.main.id
 }
 
-# Listener for the Load Balancer
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -170,22 +147,21 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# Launch Template to define the EC2 instances
 resource "aws_launch_template" "app_template" {
   name_prefix   = "devops-project-app-template"
-  image_id      = "ami-00ca32bbc84273381" # Amazon Linux 2 AMI
+  image_id      = "ami-00ca32bbc84273381"
   instance_type = "t2.micro"
+  key_name      = "ProjectKeyPair" # Added this line to attach the key
 
   iam_instance_profile {
     name = aws_iam_instance_profile.instance_profile.name
   }
 
   network_interfaces {
-    associate_public_ip_address = true
+    associate_public_ip_address = false
     security_groups             = [aws_security_group.app_sg.id]
   }
 
-  # User data to install and run the Dockerized app
   user_data = base64encode(templatefile("${path.module}/user_data.sh", { db_password = random_password.devops_project_db_password.result }))
 
   tags = {
@@ -193,12 +169,11 @@ resource "aws_launch_template" "app_template" {
   }
 }
 
-# Auto Scaling Group to manage the number of instances
 resource "aws_autoscaling_group" "app_asg" {
   desired_capacity    = 2
   max_size            = 4
   min_size            = 2
-  vpc_zone_identifier = aws_subnet.public[*].id
+  vpc_zone_identifier = aws_subnet.private[*].id
   target_group_arns   = [aws_lb_target_group.app_target_group.arn]
 
   launch_template {
@@ -213,25 +188,6 @@ resource "aws_autoscaling_group" "app_asg" {
   }
 }
 
-## TERRAFORM STATE MANAGEMENT ##
-# Create the S3 bucket for Terraform state
-resource "aws_s3_bucket" "terraform_state" {
-  bucket = "devops-project-terraform-state-amite" # Change this to a unique bucket name
-
-  tags = {
-    Name = "devops-project-terraform-state"
-  }
-}
-
-# Add S3 bucket versioning to keep a history of your state files
-resource "aws_s3_bucket_versioning" "terraform_state_versioning" {
-  bucket = aws_s3_bucket.terraform_state.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-# Create the DynamoDB table for state locking
 resource "aws_dynamodb_table" "terraform_locks" {
   name         = "devops-project-terraform-lock"
   billing_mode = "PAY_PER_REQUEST"
@@ -247,20 +203,16 @@ resource "aws_dynamodb_table" "terraform_locks" {
   }
 }
 
-## MONITORING AND ALERTING ##
-# Create an SNS topic for notifications
 resource "aws_sns_topic" "devops_alerts" {
   name = "devops-project-alerts"
 }
 
-# Subscribe your email to the SNS topic
 resource "aws_sns_topic_subscription" "email_subscription" {
   topic_arn = aws_sns_topic.devops_alerts.arn
   protocol  = "email"
   endpoint  = "amitesh3000@yahoo.com"
 }
 
-# Create a CloudWatch Alarm for ALB 5xx errors
 resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
   alarm_name          = "devops-project-alb-5xx-errors"
   comparison_operator = "GreaterThanOrEqualToThreshold"
@@ -281,7 +233,6 @@ resource "aws_cloudwatch_metric_alarm" "alb_5xx_errors" {
   ok_actions        = [aws_sns_topic.devops_alerts.arn]
 }
 
-# Create a CloudWatch Alarm for ASG CPU utilization
 resource "aws_cloudwatch_metric_alarm" "asg_cpu_high" {
   alarm_name          = "devops-project-asg-cpu-high"
   comparison_operator = "GreaterThanOrEqualToThreshold"
@@ -300,4 +251,31 @@ resource "aws_cloudwatch_metric_alarm" "asg_cpu_high" {
   alarm_description = "Alarm when average ASG CPU utilization is too high"
   alarm_actions     = [aws_sns_topic.devops_alerts.arn]
   ok_actions        = [aws_sns_topic.devops_alerts.arn]
+}
+
+resource "aws_instance" "bastion" {
+  ami                         = "ami-00ca32bbc84273381" # Correct AMI ID for Amazon Linux 2023 in us-east-1
+  instance_type               = "t2.micro"
+  vpc_security_group_ids      = [aws_security_group.bastion_sg.id]
+  subnet_id                   = aws_subnet.public[0].id
+  key_name                    = "ProjectKeyPair"
+  associate_public_ip_address = true
+  source_dest_check           = false
+
+  iam_instance_profile = aws_iam_instance_profile.instance_profile.name
+
+  user_data = <<-EOF
+              #!/bin/bash
+              sudo yum update -y
+              sudo yum install -y git
+              aws secretsmanager get-secret-value --secret-id "ssh-public-key" --query SecretString --output text > /home/ec2-user/bastion_ssh.pub
+              # The following line adds the public key to the authorized_keys file
+              cat /home/ec2-user/bastion_ssh.pub >> /home/ec2-user/.ssh/authorized_keys
+              chmod 600 /home/ec2-user/.ssh/authorized_keys
+              chown ec2-user:ec2-user /home/ec2-user/.ssh/authorized_keys
+              EOF
+
+  tags = {
+    Name = "devops-project-bastion-host"
+  }
 }

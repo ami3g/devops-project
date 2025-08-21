@@ -4,7 +4,7 @@ resource "aws_security_group" "app_sg" {
   description = "Allow inbound HTTP and SSH traffic"
   vpc_id      = aws_vpc.main.id
 
-  # Allow inbound HTTP traffic on port 80 from anywhere
+  # Allow inbound HTTP traffic on port 80 from anywhere (for load balancer)
   ingress {
     from_port   = 80
     to_port     = 80
@@ -12,12 +12,12 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow inbound SSH traffic from anywhere (for debugging)
+  # Allow inbound SSH traffic from the Bastion Host
   ingress {
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion_sg.id]
   }
 
   # Allow outbound traffic to anywhere
@@ -64,5 +64,35 @@ resource "aws_security_group" "db_security_group" {
     to_port         = 5432
     protocol        = "tcp"
     security_groups = [aws_security_group.app_sg.id]
+  }
+}
+
+# Security group for the bastion host
+resource "aws_security_group" "bastion_sg" {
+  name        = "devops-project-bastion-sg"
+  description = "Allow inbound SSH traffic from the internet for bastion access"
+  vpc_id      = aws_vpc.main.id
+
+  # Allow inbound SSH traffic on port 22 from your local machine's IP
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"] # For simplicity, but you should restrict this to your IP
+  }
+
+  # Allow outbound traffic to anywhere
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  lifecycle {
+    ignore_changes = [
+      description,
+      tags,
+    ]
   }
 }

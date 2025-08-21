@@ -1,4 +1,0 @@
-Flask
-Werkzeug
-Jinja2
-setuptools==78.1.1

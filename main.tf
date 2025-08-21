@@ -1,3 +1,4 @@
+# Main Terraform configuration file
 terraform {
   required_providers {
     # The AWS provider is what allows Terraform to interact with AWS services.
@@ -41,13 +42,26 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "public" {
   count = 2 # Create two subnets for high availability
 
-  vpc_id                = aws_vpc.main.id
-  cidr_block            = "10.0.${count.index}.0/24"
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.${count.index}.0/24"
   map_public_ip_on_launch = true
-  availability_zone     = data.aws_availability_zones.available.names[count.index]
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
 
   tags = {
     Name = "devops-project-public-subnet-${count.index}"
+  }
+}
+
+# This resource creates two private subnets within the VPC.
+resource "aws_subnet" "private" {
+  count = 2
+
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.10.${count.index * 16}/28"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+
+  tags = {
+    Name = "devops-project-private-subnet-${count.index}"
   }
 }
 
@@ -123,54 +137,6 @@ resource "aws_iam_instance_profile" "instance_profile" {
   role = aws_iam_role.ec2_instance_role.name
 }
 
-# Security Group for the Application Load Balancer to allow web traffic
-resource "aws_security_group" "lb_sg" {
-  name        = "devops-project-lb-sg"
-  description = "Allow inbound traffic from internet to ALB"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-}
-
-# Security Group to allow traffic to the EC2 instances
-resource "aws_security_group" "app_sg" {
-  name        = "devops-project-app-sg"
-  description = "Allow inbound traffic from ALB"
-  vpc_id      = aws_vpc.main.id
-
-  # Inbound rule to allow traffic from the Load Balancer
-  ingress {
-    from_port       = 5000
-    to_port         = 5000
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lb_sg.id]
-  }
-
-  # Allow all outbound traffic
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = {
-    Name = "devops-project-app-sg"
-  }
-}
-
 # Application Load Balancer
 resource "aws_lb" "main" {
   name               = "devops-project-lb"
@@ -220,30 +186,7 @@ resource "aws_launch_template" "app_template" {
   }
 
   # User data to install and run the Dockerized app
-  user_data = base64encode(<<-EOF
-              #!/bin/bash
-              yum update -y
-              yum install docker -y
-              service docker start
-              usermod -a -G docker ec2-user
-              
-              # Install AWS CLI
-              yum install -y aws-cli
-              
-              # Wait for Docker daemon to be ready
-              until docker info; do
-                echo "Waiting for Docker daemon to be ready..."
-                sleep 1
-              done
-              
-              # Log in to ECR
-              aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin ${aws_ecr_repository.app.repository_url}
-              
-              # Pull and run the latest Docker image
-              docker pull ${aws_ecr_repository.app.repository_url}:latest
-              docker run -d -p 5000:5000 ${aws_ecr_repository.app.repository_url}:latest
-              EOF
-  )
+  user_data = base64encode(templatefile("${path.module}/user_data.sh", { db_password = random_password.devops_project_db_password.result }))
 
   tags = {
     Name = "devops-project-app-template"

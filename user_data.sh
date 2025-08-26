@@ -9,4 +9,4 @@ chkconfig docker on
 export DB_PASSWORD="${db_password}"
 
 # Placeholder for your application's docker image
-docker run -p 5000:5000 your-docker-image-from-ecr
+docker run -p 5000:8000 your-docker-image-from-ecr

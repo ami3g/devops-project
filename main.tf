@@ -5,6 +5,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
+    random = {
+      source = "hashicorp/random"
+      version = "~> 3.0"
+    }
   }
 
   backend "s3" {
@@ -46,8 +50,8 @@ resource "aws_subnet" "public" {
 resource "aws_subnet" "private" {
   count = 2
 
-  vpc_id            = aws_vpc.main.id
-  cidr_block        = "10.0.10.${count.index * 16}/28"
+  vpc_id          = aws_vpc.main.id
+  cidr_block      = "10.0.10.${count.index * 16}/28"
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
@@ -112,6 +116,50 @@ resource "aws_iam_role_policy_attachment" "ecr_policy_attachment" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+# Generate a unique ID for the secret name
+resource "random_uuid" "ssh_secret_id" {}
+
+# Create a new secret in Secrets Manager to store the public key
+resource "aws_secretsmanager_secret" "bastion_ssh_key" {
+  name = "devops-project-bastion-ssh-pub-key-${random_uuid.ssh_secret_id.id}"
+  description = "SSH public key for bastion host authentication"
+}
+
+# Add a secret version with the actual public key string
+resource "aws_secretsmanager_secret_version" "bastion_ssh_key_version" {
+  secret_id = aws_secretsmanager_secret.bastion_ssh_key.id
+  # You should replace the placeholder value below with your actual SSH public key
+  # For example: "ssh-rsa AAAAB3NzaC..."
+  secret_string = "YOUR_PUBLIC_SSH_KEY_HERE"
+}
+
+# Policy to allow reading the SSH key and DB credentials from Secrets Manager
+resource "aws_iam_policy" "secrets_manager_policy" {
+  name        = "devops-project-secrets-manager-policy"
+  description = "Allows EC2 instances to read the SSH public key and DB credentials from Secrets Manager"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = [
+          aws_secretsmanager_secret.bastion_ssh_key.arn,
+          aws_secretsmanager_secret.db_password_secret.arn,
+          aws_secretsmanager_secret.db_endpoint_secret.arn,
+        ]
+      },
+    ]
+  })
+}
+
+# Attach the new policy to the EC2 role
+resource "aws_iam_role_policy_attachment" "secrets_manager_attachment" {
+  role       = aws_iam_role.ec2_instance_role.name
+  policy_arn = aws_iam_policy.secrets_manager_policy.arn
+}
+
 resource "aws_iam_instance_profile" "instance_profile" {
   name = "devops-project-instance-profile"
   role = aws_iam_role.ec2_instance_role.name
@@ -151,7 +199,7 @@ resource "aws_launch_template" "app_template" {
   name_prefix   = "devops-project-app-template"
   image_id      = "ami-00ca32bbc84273381"
   instance_type = "t2.micro"
-  key_name      = "ProjectKeyPair" # Added this line to attach the key
+  key_name      = "ProjectKeyPair"
 
   iam_instance_profile {
     name = aws_iam_instance_profile.instance_profile.name
@@ -162,7 +210,11 @@ resource "aws_launch_template" "app_template" {
     security_groups             = [aws_security_group.app_sg.id]
   }
 
-  user_data = base64encode(templatefile("${path.module}/user_data.sh", { db_password = random_password.devops_project_db_password.result }))
+  user_data = base64encode(templatefile("${path.module}/user_data.sh", {
+    db_password_secret_name = aws_secretsmanager_secret.db_password_secret.name,
+    db_endpoint_secret_name = aws_secretsmanager_secret.db_endpoint_secret.name,
+    DOCKER_COMPOSE_VERSION  = "1.29.2"
+  }))
 
   tags = {
     Name = "devops-project-app-template"
@@ -264,11 +316,13 @@ resource "aws_instance" "bastion" {
 
   iam_instance_profile = aws_iam_instance_profile.instance_profile.name
 
+  # The user data script now references the secret created by Terraform
   user_data = <<-EOF
               #!/bin/bash
               sudo yum update -y
               sudo yum install -y git
-              aws secretsmanager get-secret-value --secret-id "ssh-public-key" --query SecretString --output text > /home/ec2-user/bastion_ssh.pub
+              # Retrieve the secret string using the name from our Terraform resource
+              aws secretsmanager get-secret-value --secret-id "${aws_secretsmanager_secret.bastion_ssh_key.name}" --query SecretString --output text > /home/ec2-user/bastion_ssh.pub
               # The following line adds the public key to the authorized_keys file
               cat /home/ec2-user/bastion_ssh.pub >> /home/ec2-user/.ssh/authorized_keys
               chmod 600 /home/ec2-user/.ssh/authorized_keys

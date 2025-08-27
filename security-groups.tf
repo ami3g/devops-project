@@ -1,10 +1,10 @@
-# Security group for the EC2 instance running the application.
-resource "aws_security_group" "app_sg" {
-  name        = "devops-project-app-sg"
-  description = "Allow inbound HTTP and SSH traffic"
+# The Load Balancer Security Group
+resource "aws_security_group" "lb_sg" {
+  name        = "devops-project-lb-sg"
+  description = "Security group for the Application Load Balancer"
   vpc_id      = aws_vpc.main.id
 
-  # Allow inbound HTTP traffic on port 80 from anywhere (for load balancer)
+  # Ingress rule for HTTP traffic from the internet
   ingress {
     from_port   = 80
     to_port     = 80
@@ -12,15 +12,7 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow inbound SSH traffic from the Bastion Host
-  ingress {
-    from_port       = 22
-    to_port         = 22
-    protocol        = "tcp"
-    security_groups = [aws_security_group.bastion_sg.id]
-  }
-
-  # Allow outbound traffic to anywhere
+  # Egress rule allowing all outbound traffic
   egress {
     from_port   = 0
     to_port     = 0
@@ -28,60 +20,66 @@ resource "aws_security_group" "app_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow inbound traffic from the Load Balancer
-  ingress {
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.lb_sg.id]
+  tags = {
+    Name = "devops-project-lb-sg"
   }
 }
 
-# Security group for the EC2 Load Balancer
-resource "aws_security_group" "lb_sg" {
-  name        = "devops-project-lb-sg"
-  description = "Allow inbound HTTP traffic to the load balancer"
+# The Application Security Group
+resource "aws_security_group" "app_sg" {
+  name        = "devops-project-app-sg"
+  description = "Security group for the application servers"
   vpc_id      = aws_vpc.main.id
 
-  # Allow inbound HTTP traffic on port 80 from anywhere
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
+  # Now using a standalone rule for the egress traffic.
+  # This makes the rules independent from the security group itself.
+  egress {
+    from_port = 0
+    to_port = 0
+    protocol = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
-}
 
-# Security group for the RDS DB instance
-resource "aws_security_group" "db_security_group" {
-  name        = "devops-project-db-sg"
-  description = "Allow inbound traffic from the application servers"
-  vpc_id      = aws_vpc.main.id
-
-  # Allow inbound traffic on port 5432 (PostgreSQL) from the application security group
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app_sg.id]
+  tags = {
+    Name = "devops-project-app-sg"
   }
 }
 
-# Security group for the bastion host
+# Standalone Ingress rule for the Application SG
+# This allows traffic from the Load Balancer SG
+resource "aws_security_group_rule" "app_ingress_lb" {
+  type              = "ingress"
+  from_port         = 5000
+  to_port           = 5000
+  protocol          = "tcp"
+  source_security_group_id = aws_security_group.lb_sg.id
+  security_group_id = aws_security_group.app_sg.id
+}
+
+# Standalone Ingress rule for the Application SG
+# This allows SSH traffic from the Bastion SG
+resource "aws_security_group_rule" "app_ingress_bastion" {
+  type              = "ingress"
+  from_port         = 22
+  to_port           = 22
+  protocol          = "tcp"
+  source_security_group_id = aws_security_group.bastion_sg.id
+  security_group_id = aws_security_group.app_sg.id
+}
+
+# The Bastion Host Security Group
 resource "aws_security_group" "bastion_sg" {
   name        = "devops-project-bastion-sg"
-  description = "Allow inbound SSH traffic from the internet for bastion access"
+  description = "Security group for the Bastion host"
   vpc_id      = aws_vpc.main.id
 
-  # Allow inbound SSH traffic on port 22 from your local machine's IP
   ingress {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # For simplicity, but you should restrict this to your IP
+    cidr_blocks = ["0.0.0.0/0"]
   }
 
-  # Allow outbound traffic to anywhere
   egress {
     from_port   = 0
     to_port     = 0
@@ -89,10 +87,37 @@ resource "aws_security_group" "bastion_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
-  lifecycle {
-    ignore_changes = [
-      description,
-      tags,
-    ]
+  tags = {
+    Name = "devops-project-bastion-sg"
   }
+}
+
+# The Database Security Group
+resource "aws_security_group" "db_security_group" {
+  name        = "devops-project-db-sg"
+  description = "Security group for the RDS database"
+  vpc_id      = aws_vpc.main.id
+
+  # Egress rule for database
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "devops-project-db-sg"
+  }
+}
+
+# Standalone Ingress rule for the Database SG
+# This allows traffic from the Application SG
+resource "aws_security_group_rule" "db_ingress_app" {
+  type              = "ingress"
+  from_port         = 5432
+  to_port           = 5432
+  protocol          = "tcp"
+  source_security_group_id = aws_security_group.app_sg.id
+  security_group_id = aws_security_group.db_security_group.id
 }

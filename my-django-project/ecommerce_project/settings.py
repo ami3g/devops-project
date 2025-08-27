@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -78,9 +79,9 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': 'devops_project_db',
         'USER': 'projectadmin',
-        'PASSWORD': 'Subra#1512', # Replace with your actual password
-        'HOST': 'terraform-20250821175313543800000006.codyug048f9b.us-east-1.rds.amazonaws.com',
-        'PORT': '5432', # Use the correct, standard PostgreSQL port
+        'PASSWORD': os.environ.get('DB_PASSWORD'),
+        'HOST': os.environ.get('DB_HOST'),
+        'PORT': '5432',
     }
 }
 

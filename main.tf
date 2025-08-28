@@ -29,8 +29,8 @@ data "aws_availability_zones" "available" {
 
 # Added enable_dns_support and enable_dns_hostnames to the VPC resource
 resource "aws_vpc" "main" {
-  cidr_block           = "10.0.0.0/16"
-  enable_dns_support   = true
+  cidr_block         = "10.0.0.0/16"
+  enable_dns_support = true
   enable_dns_hostnames = true
   tags = {
     Name = "devops-project-vpc"
@@ -40,10 +40,10 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "public" {
   count = 2
 
-  vpc_id                  = aws_vpc.main.id
-  cidr_block              = "10.0.${count.index}.0/24"
+  vpc_id              = aws_vpc.main.id
+  cidr_block          = "10.0.${count.index}.0/24"
   map_public_ip_on_launch = true
-  availability_zone       = data.aws_availability_zones.available.names[count.index]
+  availability_zone   = data.aws_availability_zones.available.names[count.index]
 
   tags = {
     Name = "devops-project-public-subnet-${count.index}"

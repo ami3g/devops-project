@@ -31,8 +31,7 @@ resource "aws_security_group" "app_sg" {
   description = "Security group for the application servers"
   vpc_id      = aws_vpc.main.id
 
-  # Now using a standalone rule for the egress traffic.
-  # This makes the rules independent from the security group itself.
+  # Egress rule allowing all outbound traffic
   egress {
     from_port = 0
     to_port = 0
@@ -48,10 +47,10 @@ resource "aws_security_group" "app_sg" {
 # Standalone Ingress rule for the Application SG
 # This allows traffic from the Load Balancer SG
 resource "aws_security_group_rule" "app_ingress_lb" {
-  type              = "ingress"
-  from_port         = 5000
-  to_port           = 5000
-  protocol          = "tcp"
+  type             = "ingress"
+  from_port        = 8000 # Corrected from 5000 to 8000
+  to_port          = 8000 # Corrected from 5000 to 8000
+  protocol         = "tcp"
   source_security_group_id = aws_security_group.lb_sg.id
   security_group_id = aws_security_group.app_sg.id
 }
@@ -59,10 +58,10 @@ resource "aws_security_group_rule" "app_ingress_lb" {
 # Standalone Ingress rule for the Application SG
 # This allows SSH traffic from the Bastion SG
 resource "aws_security_group_rule" "app_ingress_bastion" {
-  type              = "ingress"
-  from_port         = 22
-  to_port           = 22
-  protocol          = "tcp"
+  type             = "ingress"
+  from_port        = 22
+  to_port          = 22
+  protocol         = "tcp"
   source_security_group_id = aws_security_group.bastion_sg.id
   security_group_id = aws_security_group.app_sg.id
 }
@@ -114,11 +113,10 @@ resource "aws_security_group" "db_security_group" {
 # Standalone Ingress rule for the Database SG
 # This allows traffic from the Application SG
 resource "aws_security_group_rule" "db_ingress_app" {
-  type              = "ingress"
-  from_port         = 5432
-  to_port           = 5432
-  protocol          = "tcp"
+  type             = "ingress"
+  from_port        = 5432
+  to_port          = 5432
+  protocol         = "tcp"
   source_security_group_id = aws_security_group.app_sg.id
   security_group_id = aws_security_group.db_security_group.id
 }
- 

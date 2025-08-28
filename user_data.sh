@@ -7,6 +7,7 @@ sudo yum install -y docker
 # Start the Docker service
 sudo systemctl start docker
 sudo usermod -a -G docker ec2-user
+newgrp docker
 
 # Set environment variables for the application
 export DB_PASSWORD="${db_password}"

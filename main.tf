@@ -12,10 +12,10 @@ terraform {
   }
 
   backend "s3" {
-    bucket           = "devops-project-terraform-state-amite"
-    key              = "main/terraform.tfstate"
-    region           = "us-east-1"
-    dynamodb_table   = "devops-project-terraform-lock"
+    bucket         = "devops-project-terraform-state-amite"
+    key            = "main/terraform.tfstate"
+    region         = "us-east-1"
+    dynamodb_table = "devops-project-terraform-lock"
   }
 }
 
@@ -147,9 +147,69 @@ resource "aws_secretsmanager_secret" "bastion_ssh_key" {
 # Add a secret version with the actual public key string
 resource "aws_secretsmanager_secret_version" "bastion_ssh_key_version" {
   secret_id = aws_secretsmanager_secret.bastion_ssh_key.id
-  # You should replace the placeholder value below with your actual SSH public key
-  # For example: "ssh-rsa AAAAB3NzaC..."
-  secret_string = "YOUR_PUBLIC_SSH_KEY_HERE"
+  secret_string = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBDCwxtOxTM2v7NqKXRPIsm6B8rGbZJd0GrrElKoSdH8 amite@ami"
+}
+
+# Define an Amazon RDS DB instance
+resource "aws_db_instance" "devops_project_db" {
+  vpc_security_group_ids = [aws_security_group.db_security_group.id]
+  db_subnet_group_name   = aws_db_subnet_group.devops_project_db_subnet_group.name
+
+  allocated_storage       = 20
+  engine                  = "postgres"
+  engine_version          = "16.10"
+  instance_class          = "db.t3.micro"
+  db_name                 = "devops_project_db"
+  username                = "projectadmin"
+  password                = random_password.devops_project_db_password.result
+
+  apply_immediately       = true
+  skip_final_snapshot     = true
+  publicly_accessible     = false
+  backup_retention_period = 7
+
+  tags = {
+    Name = "devops-project-db"
+  }
+
+  lifecycle {
+    ignore_changes = [engine_version]
+  }
+}
+
+resource "random_password" "devops_project_db_password" {
+  length           = 16
+  special          = true
+  override_special = "!#$%&*()_+-=[]{}|:<>?,."
+}
+
+resource "aws_db_subnet_group" "devops_project_db_subnet_group" {
+  subnet_ids = [aws_subnet.private[0].id, aws_subnet.private[1].id]
+  tags = {
+    Name = "devops-project-db-subnet-group"
+  }
+}
+
+# Create a new secret for the DB password in Secrets Manager
+resource "aws_secretsmanager_secret" "db_password_secret" {
+  name        = "devops-project-db-password"
+  description = "RDS DB password"
+}
+
+resource "aws_secretsmanager_secret_version" "db_password_secret_version" {
+  secret_id     = aws_secretsmanager_secret.db_password_secret.id
+  secret_string = random_password.devops_project_db_password.result
+}
+
+# Create a new secret for the DB endpoint
+resource "aws_secretsmanager_secret" "db_endpoint_secret" {
+  name        = "devops-project-db-endpoint"
+  description = "RDS DB endpoint"
+}
+
+resource "aws_secretsmanager_secret_version" "db_endpoint_secret_version" {
+  secret_id     = aws_secretsmanager_secret.db_endpoint_secret.id
+  secret_string = aws_db_instance.devops_project_db.address
 }
 
 # Policy to allow reading the SSH key and DB credentials from Secrets Manager
@@ -198,7 +258,7 @@ resource "aws_lb" "main" {
 
 resource "aws_lb_target_group" "app_target_group" {
   name     = "devops-project-tg"
-  port     = 5000
+  port     = 8000
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 }
@@ -230,9 +290,7 @@ resource "aws_launch_template" "app_template" {
   }
 
   user_data = base64encode(templatefile("${path.module}/user_data.sh", {
-    # Now passing the actual password value, as requested by the script.
     db_password = aws_secretsmanager_secret_version.db_password_secret_version.secret_string
-    # Also passing the actual endpoint value, which is a common requirement.
     db_endpoint = aws_secretsmanager_secret_version.db_endpoint_secret_version.secret_string
     ecr_repo_url = aws_ecr_repository.app.repository_url
   }))

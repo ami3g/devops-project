@@ -29,8 +29,8 @@ data "aws_availability_zones" "available" {
 
 # Added enable_dns_support and enable_dns_hostnames to the VPC resource
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-  enable_dns_support = true
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
   enable_dns_hostnames = true
   tags = {
     Name = "devops-project-vpc"
@@ -53,8 +53,8 @@ resource "aws_subnet" "public" {
 resource "aws_subnet" "private" {
   count = 2
 
-  vpc_id          = aws_vpc.main.id
-  cidr_block      = "10.0.10.${count.index * 16}/28"
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.10.${count.index * 16}/28"
   availability_zone = data.aws_availability_zones.available.names[count.index]
 
   tags = {
@@ -104,7 +104,6 @@ resource "aws_route_table_association" "private" {
   subnet_id      = aws_subnet.private[count.index].id
   route_table_id = aws_route_table.private.id
 }
-
 
 resource "aws_ecr_repository" "app" {
   name                 = "devops-project-app"
@@ -216,10 +215,10 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_launch_template" "app_template" {
-  name_prefix   = "devops-project-app-template"
-  image_id      = "ami-00ca32bbc84273381"
-  instance_type = "t2.micro"
-  key_name      = "ProjectKeyPair"
+  name_prefix     = "devops-project-app-template"
+  image_id        = "ami-00ca32bbc84273381"
+  instance_type   = "t2.micro"
+  key_name        = "ProjectKeyPair"
 
   iam_instance_profile {
     name = aws_iam_instance_profile.instance_profile.name
@@ -235,6 +234,7 @@ resource "aws_launch_template" "app_template" {
     db_password = aws_secretsmanager_secret_version.db_password_secret_version.secret_string
     # Also passing the actual endpoint value, which is a common requirement.
     db_endpoint = aws_secretsmanager_secret_version.db_endpoint_secret_version.secret_string
+    ecr_repo_url = aws_ecr_repository.app.repository_url
   }))
 
   lifecycle {

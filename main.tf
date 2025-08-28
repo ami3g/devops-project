@@ -27,8 +27,11 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+# Added enable_dns_support and enable_dns_hostnames to the VPC resource
 resource "aws_vpc" "main" {
   cidr_block = "10.0.0.0/16"
+  enable_dns_support = true
+  enable_dns_hostnames = true
   tags = {
     Name = "devops-project-vpc"
   }
@@ -85,6 +88,23 @@ resource "aws_route_table_association" "public" {
   subnet_id      = aws_subnet.public[count.index].id
   route_table_id = aws_route_table.public.id
 }
+
+# Route table for the private subnets
+resource "aws_route_table" "private" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "devops-project-private-rt"
+  }
+}
+
+# Associate the private subnets with the private route table
+resource "aws_route_table_association" "private" {
+  count          = 2
+  subnet_id      = aws_subnet.private[count.index].id
+  route_table_id = aws_route_table.private.id
+}
+
 
 resource "aws_ecr_repository" "app" {
   name                 = "devops-project-app"

@@ -15,7 +15,8 @@ terraform {
     bucket         = "devops-project-terraform-state-amite"
     key            = "main/terraform.tfstate"
     region         = "us-east-1"
-    dynamodb_table = "devops-project-terraform-lock"
+    # IMPORTANT: Temporarily commented out to fix the destroy error.
+    # dynamodb_table = "devops-project-terraform-lock"
   }
 }
 
@@ -40,10 +41,10 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "public" {
   count = 2
 
-  vpc_id              = aws_vpc.main.id
-  cidr_block          = "10.0.${count.index}.0/24"
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.${count.index}.0/24"
   map_public_ip_on_launch = true
-  availability_zone   = data.aws_availability_zones.available.names[count.index]
+  availability_zone       = data.aws_availability_zones.available.names[count.index]
 
   tags = {
     Name = "devops-project-public-subnet-${count.index}"
@@ -111,6 +112,8 @@ resource "aws_ecr_repository" "app" {
   image_scanning_configuration {
     scan_on_push = true
   }
+  # CRITICAL: This line forces the repository and its images to be deleted.
+  force_delete = true
 }
 
 resource "aws_iam_role" "ec2_instance_role" {
@@ -258,7 +261,7 @@ resource "aws_lb" "main" {
 
 resource "aws_lb_target_group" "app_target_group" {
   name     = "devops-project-tg"
-  port     = 8000
+  port     = 5000
   protocol = "HTTP"
   vpc_id   = aws_vpc.main.id
 }
@@ -275,10 +278,10 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_launch_template" "app_template" {
-  name_prefix     = "devops-project-app-template"
-  image_id        = "ami-00ca32bbc84273381"
-  instance_type   = "t2.micro"
-  key_name        = "ProjectKeyPair"
+  name_prefix      = "devops-project-app-template"
+  image_id         = "ami-00ca32bbc84273381"
+  instance_type    = "t2.micro"
+  key_name         = "ProjectKeyPair"
 
   iam_instance_profile {
     name = aws_iam_instance_profile.instance_profile.name
@@ -389,11 +392,11 @@ resource "aws_cloudwatch_metric_alarm" "asg_cpu_high" {
 }
 
 resource "aws_instance" "bastion" {
-  ami                   = "ami-00ca32bbc84273381"
-  instance_type         = "t2.micro"
+  ami                 = "ami-00ca32bbc84273381"
+  instance_type       = "t2.micro"
   vpc_security_group_ids = [aws_security_group.bastion_sg.id]
-  subnet_id             = aws_subnet.public[0].id
-  key_name              = "ProjectKeyPair"
+  subnet_id           = aws_subnet.public[0].id
+  key_name            = "ProjectKeyPair"
   associate_public_ip_address = true
   source_dest_check     = false
 

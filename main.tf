@@ -195,8 +195,8 @@ resource "aws_db_subnet_group" "devops_project_db_subnet_group" {
 
 # Create a new secret for the DB password in Secrets Manager
 resource "aws_secretsmanager_secret" "db_password_secret" {
-  name        = "devops-project-db-password"
-  description = "RDS DB password"
+  name        = "devops-project-db-password-v2"
+  description = "RDS DB password for DevOps Project"
 }
 
 resource "aws_secretsmanager_secret_version" "db_password_secret_version" {
@@ -206,8 +206,8 @@ resource "aws_secretsmanager_secret_version" "db_password_secret_version" {
 
 # Create a new secret for the DB endpoint
 resource "aws_secretsmanager_secret" "db_endpoint_secret" {
-  name        = "devops-project-db-endpoint"
-  description = "RDS DB endpoint"
+  name        = "devops-project-db-endpoint-v2"
+  description = "RDS DB endpoint for DevOps Project"
 }
 
 resource "aws_secretsmanager_secret_version" "db_endpoint_secret_version" {
